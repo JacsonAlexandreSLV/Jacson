@@ -1,24 +1,289 @@
-# Compiled class file
-*.class
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.*;
+import java.util.Random;
 
-# Log file
-*.log
+public class BlockBlast extends JPanel implements MouseListener, MouseMotionListener {
+    private static final int GRID_SIZE = 8;
+    private static final int CELL_SIZE = 50;
+    private static final int SCREEN_WIDTH = GRID_SIZE * CELL_SIZE + 300;
+    private static final int SCREEN_HEIGHT = GRID_SIZE * CELL_SIZE + 100;
 
-# BlueJ files
-*.ctxt
+    private static final int[][][] BLOCK_SHAPES = {
+        {{1}},
+        {{1, 1}},
+        {{1}, {1}},
+        {{1, 1, 1}},
+        {{1}, {1}, {1}},
+        {{1, 1}, {1, 0}},
+        {{1, 1}, {0, 1}},
+        {{1, 0}, {1, 1}},
+        {{0, 1}, {1, 1}},
+        {{1, 1, 1}, {0, 1, 0}}
+    };
 
-# Mobile Tools for Java (J2ME)
-.mtj.tmp/
+    private final Color EMPTY = Color.WHITE;
+    private final Color BLOCK_COLOR = Color.BLUE;
+    private final Color GRID_COLOR = new Color(200, 200, 200);
+    private final Color HIGHLIGHT = Color.YELLOW;
+    private final Color TEXT_COLOR = Color.BLACK;
+    private final Color GAME_OVER_COLOR = Color.RED;
 
-# Package Files #
-*.jar
-*.war
-*.nar
-*.ear
-*.zip
-*.tar.gz
-*.rar
+    private int[][] grid = new int[GRID_SIZE][GRID_SIZE];
+    private int score = 0;
+    private Block[] currentBlocks = new Block[3];
+    private boolean dragging = false;
+    private Block dragBlock;
+    private int dragOffsetX, dragOffsetY;
+    private int dragX, dragY;
+    private int dragIndex = -1;
+    private boolean gameOver = false;
 
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
-hs_err_pid*
-replay_pid*
+    private static class Block {
+        int[][] shape;
+        int width;
+        int height;
+        Color color;
+    }
+
+    public BlockBlast() {
+        setPreferredSize(new Dimension(SCREEN_WIDTH, SCREEN_HEIGHT));
+        setBackground(EMPTY);
+        addMouseListener(this);
+        addMouseMotionListener(this);
+        Random random = new Random();
+        for (int i = 0; i < 3; i++) {
+            currentBlocks[i] = generateBlock(random);
+        }
+    }
+
+    private Block generateBlock(Random random) {
+        Block b = new Block();
+        int idx = random.nextInt(BLOCK_SHAPES.length);
+        b.shape = BLOCK_SHAPES[idx];
+        b.height = b.shape.length;
+        b.width = (b.height > 0) ? b.shape[0].length : 0;
+        b.color = BLOCK_COLOR;
+        return b;
+    }
+
+    @Override
+    protected void paintComponent(Graphics g) {
+        super.paintComponent(g);
+
+        // Draw grid
+        for (int i = 0; i < GRID_SIZE; i++) {
+            for (int j = 0; j < GRID_SIZE; j++) {
+                int x = j * CELL_SIZE;
+                int y = i * CELL_SIZE;
+                g.setColor(GRID_COLOR);
+                g.drawRect(x, y, CELL_SIZE, CELL_SIZE);
+                if (grid[i][j] == 1) {
+                    g.setColor(BLOCK_COLOR);
+                    g.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+                }
+            }
+        }
+
+        // Draw upcoming blocks
+        for (int idx = 0; idx < 3; idx++) {
+            Block b = currentBlocks[idx];
+            int x_offset = GRID_SIZE * CELL_SIZE + 20;
+            int y_offset = idx * 100 + 20;
+            g.setColor(b.color);
+            for (int i = 0; i < b.height; i++) {
+                for (int j = 0; j < b.width; j++) {
+                    if (b.shape[i][j] == 1) {
+                        g.fillRect(x_offset + j * CELL_SIZE, y_offset + i * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                    }
+                }
+            }
+        }
+
+        // Draw score
+        g.setColor(TEXT_COLOR);
+        g.setFont(new Font("Arial", Font.PLAIN, 36));
+        g.drawString("Score: " + score, GRID_SIZE * CELL_SIZE + 20, SCREEN_HEIGHT - 80);
+
+        // Draw dragging block
+        if (dragging) {
+            g.setColor(dragBlock.color);
+            for (int i = 0; i < dragBlock.height; i++) {
+                for (int j = 0; j < dragBlock.width; j++) {
+                    if (dragBlock.shape[i][j] == 1) {
+                        g.fillRect(dragX + j * CELL_SIZE, dragY + i * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                    }
+                }
+            }
+
+            // Highlight placement
+            int gridCol = dragX / CELL_SIZE;
+            int gridRow = dragY / CELL_SIZE;
+            if (canPlace(gridRow, gridCol, dragBlock)) {
+                Graphics2D g2 = (Graphics2D) g;
+                g2.setStroke(new BasicStroke(3));
+                g2.setColor(HIGHLIGHT);
+                for (int i = 0; i < dragBlock.height; i++) {
+                    for (int j = 0; j < dragBlock.width; j++) {
+                        if (dragBlock.shape[i][j] == 1) {
+                            g2.drawRect((gridCol + j) * CELL_SIZE, (gridRow + i) * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Draw game over
+        if (gameOver) {
+            g.setColor(GAME_OVER_COLOR);
+            g.setFont(new Font("Arial", Font.BOLD, 48));
+            g.drawString("Game Over!", SCREEN_WIDTH / 2 - 150, SCREEN_HEIGHT / 2);
+        }
+    }
+
+    private boolean canPlace(int row, int col, Block b) {
+        if (row < 0 || col < 0 || row + b.height > GRID_SIZE || col + b.width > GRID_SIZE) {
+            return false;
+        }
+        for (int i = 0; i < b.height; i++) {
+            for (int j = 0; j < b.width; j++) {
+                if (b.shape[i][j] == 1 && grid[row + i][col + j] == 1) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private void placeBlock(int row, int col, Block b) {
+        for (int i = 0; i < b.height; i++) {
+            for (int j = 0; j < b.width; j++) {
+                if (b.shape[i][j] == 1) {
+                    grid[row + i][col + j] = 1;
+                }
+            }
+        }
+        clearLines();
+        Random random = new Random();
+        currentBlocks[dragIndex] = generateBlock(random);
+    }
+
+    private void clearLines() {
+        // Clear full rows
+        for (int i = 0; i < GRID_SIZE; i++) {
+            boolean full = true;
+            for (int j = 0; j < GRID_SIZE; j++) {
+                if (grid[i][j] == 0) {
+                    full = false;
+                    break;
+                }
+            }
+            if (full) {
+                for (int j = 0; j < GRID_SIZE; j++) {
+                    grid[i][j] = 0;
+                }
+                score += 10;
+            }
+        }
+
+        // Clear full columns
+        for (int j = 0; j < GRID_SIZE; j++) {
+            boolean full = true;
+            for (int i = 0; i < GRID_SIZE; i++) {
+                if (grid[i][j] == 0) {
+                    full = false;
+                    break;
+                }
+            }
+            if (full) {
+                for (int i = 0; i < GRID_SIZE; i++) {
+                    grid[i][j] = 0;
+                }
+                score += 10;
+            }
+        }
+    }
+
+    private boolean checkGameOver() {
+        for (Block b : currentBlocks) {
+            for (int i = 0; i < GRID_SIZE; i++) {
+                for (int j = 0; j < GRID_SIZE; j++) {
+                    if (canPlace(i, j, b)) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public void mousePressed(MouseEvent e) {
+        if (gameOver) return;
+        int x = e.getX();
+        int y = e.getY();
+        if (x > GRID_SIZE * CELL_SIZE) {
+            for (int idx = 0; idx < 3; idx++) {
+                Block b = currentBlocks[idx];
+                int x_offset = GRID_SIZE * CELL_SIZE + 20;
+                int y_offset = idx * 100 + 20;
+                if (x >= x_offset && x < x_offset + b.width * CELL_SIZE &&
+                    y >= y_offset && y < y_offset + b.height * CELL_SIZE) {
+                    dragging = true;
+                    dragBlock = b;
+                    dragOffsetX = x - x_offset;
+                    dragOffsetY = y - y_offset;
+                    dragX = x - dragOffsetX;
+                    dragY = y - dragOffsetY;
+                    dragIndex = idx;
+                    repaint();
+                    break;
+                }
+            }
+        }
+    }
+
+    @Override
+    public void mouseReleased(MouseEvent e) {
+        if (dragging) {
+            int gridCol = (e.getX() - dragOffsetX) / CELL_SIZE;
+            int gridRow = (e.getY() - dragOffsetY) / CELL_SIZE;
+            if (canPlace(gridRow, gridCol, dragBlock)) {
+                placeBlock(gridRow, gridCol, dragBlock);
+            }
+            dragging = false;
+            repaint();
+            if (checkGameOver()) {
+                gameOver = true;
+                repaint();
+            }
+        }
+    }
+
+    @Override
+    public void mouseDragged(MouseEvent e) {
+        if (dragging) {
+            dragX = e.getX() - dragOffsetX;
+            dragY = e.getY() - dragOffsetY;
+            repaint();
+        }
+    }
+
+    @Override
+    public void mouseClicked(MouseEvent e) {}
+    @Override
+    public void mouseEntered(MouseEvent e) {}
+    @Override
+    public void mouseExited(MouseEvent e) {}
+    @Override
+    public void mouseMoved(MouseEvent e) {}
+
+    public static void main(String[] args) {
+        JFrame frame = new JFrame("Block Blast");
+        BlockBlast game = new BlockBlast();
+        frame.add(game);
+        frame.pack();
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.setVisible(true);
+    }
+}
